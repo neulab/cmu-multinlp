@@ -221,6 +221,6 @@ local span_dim = span_dim1 + span_dim2;
   },
   "evaluate_on_test": true,
   "vocabulary": {
-    "directory_path": "output/all_vocab/vocabulary/"
+    "directory_path": if std.extVar("vocab") != "null" then std.extVar("vocab")
   }
 }

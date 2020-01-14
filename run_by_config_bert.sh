@@ -30,6 +30,7 @@ patience=10
 num_order=0
 warmup=0.1
 use_middle_layer=null
+vocab=output/all_vocab/vocabulary/
 
 if [[ $1 == 'dp_conll' ]]; then
     task=dp_conll
@@ -454,6 +455,18 @@ elif [[ $1 == 'orl' ]]; then
     patience=50
     step_per_epoch=160
 
+elif [[ $1 == 'kairos' ]]; then
+    task=kairos
+    max_span_width=30
+    data_dir=kairos
+    task_loss=span-span_pair
+    spans_per_word=0.4
+    validation_metric=kairos_sp_prf_f
+    num_epochs=10
+    patience=10
+    step_per_epoch=1
+    vocab=null
+
 fi
 
 #num_epochs=10
@@ -492,9 +505,14 @@ jsonnet \
     --ext-code num_order=${num_order} \
     --ext-code warmup=${warmup} \
     --ext-code use_middle_layer=${use_middle_layer} \
+    --ext-str vocab=${vocab} \
     training_config/template/bert.jsonnet > ${temp_file}
 
 echo "write config to" ${temp_file}
 cat ${temp_file}
 
-allennlp train ${temp_file} -s ${output} --include-package brat_multitask ${args}
+if [[ ${vocab} == "null" ]]; then
+    allennlp make-vocab ${temp_file} -s ${output} --include-package brat_multitask ${args}
+else
+    allennlp train ${temp_file} -s ${output} --include-package brat_multitask ${args}
+fi

@@ -6,14 +6,9 @@ This repository contains scripts to download and preprocess the **G**eneral **L*
 
 ```bash
 # install jsonnet from https://github.com/google/jsonnet
-conda create -n brat python=3.6
-conda activate brat
-pip install allennlp==0.8.4
-mkdir -p pretrain/elmo/
-pushd pretrain/elmo/
-wget https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x4096_512_2048cnn_2xhighway_5.5B/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5
-wget https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x4096_512_2048cnn_2xhighway_5.5B/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json
-popd
+conda create -n spanrel python=3.6
+conda activate spanrel
+./setup.sh
 ```
 
 ## Datasets
@@ -51,3 +46,10 @@ Run GloVe/ELMo-based models, where `$emb` can be `glove` or `elmo`, and `$task` 
 ```bash
 ./run_by_config.sh $task $emb $output
 ```
+
+## Train and Evaluate SpanRel models on other datasets
+
+1. Put the data in `data/kairos` with `train`, `dev`, and `test` directory.
+2. Build vocabulary: `./run_by_config_bert.sh kairos bert-base-uncased output/kairos_vocab`
+3. Modify the `vocab` variable in the `kairos` section of `run_by_config_bert.sh`
+4. Train and evaluate: `./run_by_config_bert.sh kairos bert-base-uncased output/kairos_log`

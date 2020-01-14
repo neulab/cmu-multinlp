@@ -23,6 +23,7 @@ max_total_seq_len=1600
 bucket_widths=false
 max_num_sample=null
 num_order=0
+vocab=output/all_vocab/vocabulary/
 
 if [[ $emb == 'glove' ]]; then
     attentive_after_context=true
@@ -216,9 +217,14 @@ jsonnet \
     --ext-code use_context_layer=${use_context_layer} \
     --ext-code max_num_sample=${max_num_sample} \
     --ext-code num_order=${num_order} \
+    --ext-str vocab=${vocab} \
     training_config/template/${emb}.jsonnet > ${temp_file}
 
 echo "write config to" ${temp_file}
 cat ${temp_file}
 
-allennlp train ${temp_file} -s ${output} --include-package brat_multitask ${args}
+if [[ ${vocab} == "null" ]]; then
+    allennlp make-vocab ${temp_file} -s ${output} --include-package brat_multitask ${args}
+else
+    allennlp train ${temp_file} -s ${output} --include-package brat_multitask ${args}
+fi

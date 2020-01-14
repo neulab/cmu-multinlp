@@ -288,6 +288,8 @@ class BratMultitask(Model):
                         PrecisionRecallF1(neg_label=span_pair_neg_label, binary_match=True))
 
             # additional metrics
+            if task_name not in self._special_metric:
+                self._special_metric[task_name] = []
             for metric in self._special_metric[task_name]:
                 if metric == 'coref':
                     setattr(self, '{}_coref'.format(task_name), MyConllCorefScores())

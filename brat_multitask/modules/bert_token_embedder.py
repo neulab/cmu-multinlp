@@ -14,12 +14,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from pytorch_pretrained_bert.modeling import BertModel
-
-from allennlp.modules.scalar_mix import ScalarMix
 from allennlp.modules.token_embedders.token_embedder import TokenEmbedder
-from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertModel
 from allennlp.nn import util
+
+from brat_multitask.modules import ScalarMix
+from brat_multitask.modules.bert_modeling import BertModel
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +27,26 @@ def mix_dist(weight, param_name, num_layers=12):
     dist = torch.softmax(torch.tensor([weight['{}.{}'.format(param_name, i)] for i in range(num_layers)]), 0).numpy()
     print(['{:.3f}'.format(d) for d in dist.tolist()])
     print(np.sum([i * dist[i-1] for i in range(1, num_layers + 1)]))
+
+
+class PretrainedBertModel:
+    """
+    In some instances you may want to load the same BERT model twice
+    (e.g. to use as a token embedder and also as a pooling layer).
+    This factory provides a cache so that you don't actually have to load the model twice.
+    """
+    _cache: Dict[str, BertModel] = {}
+
+    @classmethod
+    def load(cls, model_name: str, cache_model: bool = True) -> BertModel:
+        if model_name in cls._cache:
+            return PretrainedBertModel._cache[model_name]
+
+        model = BertModel.from_pretrained(model_name)
+        if cache_model:
+            cls._cache[model_name] = model
+
+        return model
 
 
 class BertEmbedder(TokenEmbedder):
@@ -80,8 +99,9 @@ class BertEmbedder(TokenEmbedder):
 
             if method == 'mix':
                 for task in tasks:
+                    # TODO: add dropout prob
                     setattr(self, '_scalar_mix_{}'.format(task),
-                            ScalarMix(bert_model.config.num_hidden_layers, do_layer_norm=False))
+                            ScalarMix(bert_model.config.num_hidden_layers, do_layer_norm=False, dropout=0.0))
             elif method == 'hier':
                 self.task2layer = tasks
             else:
