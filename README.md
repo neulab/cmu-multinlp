@@ -49,7 +49,7 @@ Run GloVe/ELMo-based models, where `$emb` can be `glove` or `elmo`, and `$task` 
 
 ## Train and Evaluate SpanRel models on other datasets
 
-1. Put the data in `data/kairos` with `train`, `dev`, and `test` directory.
+1. Put the data in `data/kairos` with `train`, `dev`, and `test` sub-directory, each containing multiple `.ann` and `.txt` files.
 2. Build vocabulary: `./run_by_config_bert.sh kairos bert-base-uncased output/kairos_vocab`.
 3. Modify the `vocab` variable in the `kairos` section of `run_by_config_bert.sh` to `output/kairos_vocab/vocabulary`.
 4. Train and evaluate: `./run_by_config_bert.sh kairos bert-base-uncased output/kairos_log`.
