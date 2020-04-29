@@ -1,6 +1,8 @@
-# Generalizing Natural Language Analysis through Span-relation Representations
+# CMU multinlp
 
-This repository contains scripts to download and preprocess the **G**eneral **L**anguage **A**nalysis **D**atasets (GLAD) benchmark and codes for the task-agnostic SpanRel model.
+This repository contains scripts to download and preprocess the **G**eneral **L**anguage **A**nalysis **D**atasets (GLAD) benchmark and codes for the task-agnostic SpanRel model, a multi-faceted NLP toolkit that can cover many different tasks.
+
+[Generalizing Natural Language Analysis through Span-relation Representations (ACL2020)](https://arxiv.org/abs/1911.03822)
 
 ## Prerequisites
 
