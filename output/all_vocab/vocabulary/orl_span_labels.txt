@@ -1,0 +1,4 @@
+<NEG_SPAN>
+sentiment
+holder
+target

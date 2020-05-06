@@ -1,0 +1,4 @@
+positive
+negative
+neutral
+<NEG_SPAN>
