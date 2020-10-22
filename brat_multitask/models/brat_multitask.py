@@ -9,6 +9,7 @@ import numpy as np
 import math
 from collections import defaultdict
 from copy import deepcopy
+import time
 
 from allennlp.data import Vocabulary
 from allennlp.modules import FeedForward, Seq2SeqEncoder, TextFieldEmbedder, TimeDistributed, Embedding
@@ -323,6 +324,8 @@ class BratMultitask(Model):
         Some tasks do not have span annotations or span-pair annotation.
         Since span_pair relies on span, span cannot be None but span_pair can.
         '''
+        #time1 = time.time()
+
         task2e2e = dict([(m['task'], m['e2e']) for m in metadata])
         this_batch_task = metadata[0]['task']  # TODO: only allow one task per batch
 
@@ -448,6 +451,8 @@ class BratMultitask(Model):
 
             # span neg label
             neg_label_ind = getattr(self, '{}_span_neg_label'.format(task_name))
+
+            #time2 = time.time()
 
             # SHAPE: (task_batch_size, num_spans, num_classes)
             t_span_logits = span_label_proj(span_layer(t_span_emb))
@@ -582,7 +587,8 @@ class BratMultitask(Model):
                 # metrics
                 getattr(self, '{}_s_acc'.format(task_name))(t_span_logits, t_span_labels, t_span_mask_subset)
                 getattr(self, '{}_s_prf'.format(task_name))(
-                    t_span_logits.max(-1)[1], t_span_labels, t_span_mask_subset.long(), bucket_value=t_span_len)
+                    t_span_logits.max(-1)[1], t_span_labels, t_span_mask_subset.long(),
+                    bucket_value=t_span_len, sig_test=False)
                 getattr(self, '{}_s_prf_b'.format(task_name))(
                     t_span_logits.max(-1)[1], t_span_labels, t_span_mask_subset.long())
                 for special_metric in self._special_metric[task_name]:
@@ -819,8 +825,15 @@ class BratMultitask(Model):
                 # SHAPE: (task_batch_size, num_span_pairs)
                 t_span_pair_pred = t_span_pair_prob.max(-1)[1]
 
+                # save to output
+                output_dict['task'][task_name]['span_pairs'] = t_span_pairs
+                output_dict['task'][task_name]['span_pair_preds'] = t_span_pair_pred
+                output_dict['task'][task_name]['span_pair_mask'] = t_span_pair_mask.long()
+                output_dict['task'][task_name]['span_pair_labels'] = t_span_pair_labels
+
                 getattr(self, '{}_sp_prf'.format(task_name))(
-                    t_span_pair_pred, t_span_pair_labels, t_span_pair_mask.long(), recall=recall, bucket_value=t_span_pair_len)
+                    t_span_pair_pred, t_span_pair_labels, t_span_pair_mask.long(),
+                    recall=recall, bucket_value=t_span_pair_len, sig_test=False)
                 getattr(self, '{}_sp_prf_b'.format(task_name))(
                     t_span_pair_pred, t_span_pair_labels, t_span_pair_mask.long(), recall=recall)
                 for special_metric in self._special_metric[task_name]:
@@ -851,11 +864,86 @@ class BratMultitask(Model):
             output_dict['loss'] += task_loss
             self.multi_loss(task_name, task_loss.item(), count=1)
 
+        #time3 = time.time()
+        #print('\n{}\t{}\t{}\n'.format('TIME', time2 - time1, time3 - time2))
+
         return output_dict
 
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        for task_name, task_output in output_dict['task'].items():
+            output_dict['span_with_label'] = []
+            if 'span_logits' in task_output and 'span_mask' in task_output:
+                # SHAPE: (batch_size, num_spans, 2)
+                spans = task_output['spans'].cpu().numpy()
+                # SHAPE: (batch_size, num_spans, num_class)
+                logits = task_output['span_logits']
+                # SHAPE: (batch_size, num_spans)
+                preds = logits.max(-1)[1].cpu().numpy()
+                # SHAPE: (batch_size, num_spans)
+                mask = task_output['span_mask'].cpu().numpy()
+                # SHAPE: (batch_size, num_spans)
+                labels = task_output['span_labels'].cpu().numpy()
+                # SHAPE: (batch_size, seq_len)
+                text_mask = task_output['text_mask'].cpu().numpy()
+                bs, ns = mask.shape
+
+                neg_label_ind = getattr(self, '{}_span_neg_label'.format(task_name))
+                namespace = '{}_span_labels'.format(task_name)
+                ind2label = lambda ind: self.vocab.get_token_from_index(ind, namespace)
+
+                for b in range(bs):
+                    sl: List[Tuple[Tuple, str, str]] = []
+                    output_dict['span_with_label'].append(sl)
+                    for s in range(ns):
+                        if mask[b, s] == 0:
+                            continue
+                        span_boundary: Tuple[int, int] = tuple(spans[b, s])
+                        p_label: int = preds[b, s]
+                        g_label: int = labels[b, s]
+                        if p_label == neg_label_ind and g_label == neg_label_ind:
+                            continue
+                        p_label: str = ind2label(p_label)
+                        g_label: str = ind2label(g_label)
+                        sl.append((span_boundary, p_label, g_label))
+
+            output_dict['span_pair_with_label'] = []
+            if 'span_pair_preds' in task_output and 'span_pair_mask' in task_output:
+                # SHAPE: (batch_size, num_span_pairs, 2)
+                span_pairs = task_output['span_pairs'].cpu().numpy()
+                # SHAPE: (batch_size, num_span_pairs)
+                span_pair_preds = task_output['span_pair_preds'].cpu().numpy()
+                # SHAPE: (batch_size, num_spans)
+                span_pair_mask = task_output['span_pair_mask'].cpu().numpy()
+                # SHAPE: (batch_size, num_spans)
+                span_pair_labels = task_output['span_pair_labels'].cpu().numpy()
+                bs, nsp = span_pair_mask.shape
+
+                neg_sp_label_ind = getattr(self, '{}_span_pair_neg_label'.format(task_name))
+                sp_namespace = '{}_span_pair_labels'.format(task_name)
+                sp_ind2label = lambda ind: self.vocab.get_token_from_index(ind, sp_namespace)
+
+                for b in range(bs):
+                    spl: List[Tuple[Tuple, Tuple, str, str]] = []
+                    output_dict['span_pair_with_label'].append(spl)
+                    for s in range(nsp):
+                        if span_pair_mask[b, s] == 0:
+                            continue
+                        s1b: Tuple[int, int] = tuple(spans[b, span_pairs[b, s, 0]])
+                        s2b: Tuple[int, int] = tuple(spans[b, span_pairs[b, s, 1]])
+                        p_label: int = span_pair_preds[b, s]
+                        g_label: int = span_pair_labels[b, s]
+                        if p_label == neg_sp_label_ind and g_label == neg_sp_label_ind:
+                            continue
+                        p_label: str = sp_ind2label(p_label)
+                        g_label: str = sp_ind2label(g_label)
+                        spl.append((s1b, s2b, p_label, g_label))
+
+        return output_dict
+
+
+    def decode_(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # TODO: a better way to organize output
         #   currently the order in the output might not be the same as input
         #   when there are multiple tasks
