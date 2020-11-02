@@ -461,11 +461,26 @@ class BratMultitask(Model):
             # use mask to avoid invalid spans being selected by topk
             t_span_prob_masked = self.prob_mask(t_span_prob, t_span_mask, value=1.0)
 
-            # span loss
-            if span_labels is not None and 'span' in self._task_loss[task_name]:
+            if task_name == 'coref' and self._special_loss[task_name]:
+                t_span_logits = self.prob_mask(t_span_logits, t_span_mask, value=-1e20)
+                mention_label = self.vocab.get_token_index('mention', 'coref_span_labels')
+                t_span_neg_logit = t_span_logits[:, :, mention_label]  # mention score
+            else:
+                # SHAPE: (task_batch_size, num_spans)
+                t_span_neg_logit = t_span_logits[:, :, neg_label_ind]
+
+            # save to output
+            output_dict['task'][task_name]['spans'] = t_spans
+            output_dict['task'][task_name]['span_logits'] = t_span_logits
+            output_dict['task'][task_name]['span_mask'] = t_span_mask
+            output_dict['task'][task_name]['text_mask'] = t_text_mask
+            if span_labels is not None:
                 # SHAPE: (task_batch_size, num_spans)
                 t_span_labels = span_labels.masked_select(task_mask.view(-1, 1)).view(-1, num_spans)
+                output_dict['task'][task_name]['span_labels'] = t_span_labels
 
+            # span loss
+            if span_labels is not None and 'span' in self._task_loss[task_name]:
                 if self.training or self._mid_layer is not None:
                     # use the most confusing negative spans (instead of all) for training
                     # and (optionally) refine their span representations
@@ -559,14 +574,6 @@ class BratMultitask(Model):
                 t_span_mask_subset = t_span_mask
                 '''
 
-                if task_name == 'coref' and self._special_loss[task_name]:
-                    t_span_logits = self.prob_mask(t_span_logits, t_span_mask, value=-1e20)
-                    mention_label = self.vocab.get_token_index('mention', 'coref_span_labels')
-                    t_span_neg_logit = t_span_logits[:, :, mention_label]  # mention score
-                else:
-                    # SHAPE: (task_batch_size, num_spans)
-                    t_span_neg_logit = t_span_logits[:, :, neg_label_ind]
-
                 # multiple 01 mask with weights for weighted span loss
                 span_loss = sequence_cross_entropy_with_logits(
                     t_span_logits, t_span_labels, t_span_mask_subset * t_span_weights,
@@ -576,13 +583,6 @@ class BratMultitask(Model):
                     uw = getattr(self, '{}_uncertain_weight'.format(task_name))
                     span_loss = torch.exp(-uw) * span_loss + 0.5 * uw
                 task_loss += span_loss
-
-                # save to output
-                output_dict['task'][task_name]['spans'] = t_spans
-                output_dict['task'][task_name]['span_logits'] = t_span_logits
-                output_dict['task'][task_name]['span_mask'] = t_span_mask_subset
-                output_dict['task'][task_name]['span_labels'] = t_span_labels
-                output_dict['task'][task_name]['text_mask'] = t_text_mask
 
                 # metrics
                 getattr(self, '{}_s_acc'.format(task_name))(t_span_logits, t_span_labels, t_span_mask_subset)
