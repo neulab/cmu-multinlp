@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Any, Tuple, Union, Callable
+from typing import Dict, List, Optional, Any, Tuple, Union, Callable, Set
 
 from overrides import overrides
 import torch
@@ -831,6 +831,11 @@ class BratMultitask(Model):
                 output_dict['task'][task_name]['span_pair_mask'] = t_span_pair_mask.long()
                 output_dict['task'][task_name]['span_pair_labels'] = t_span_pair_labels
 
+                if task2e2e[task_name]:
+                    output_dict['task'][task_name]['ref_span_pairs'] = ref_t_span_pairs
+                    output_dict['task'][task_name]['ref_span_pair_mask'] = ref_t_span_pair_mask.long()
+                    output_dict['task'][task_name]['ref_span_pair_labels'] = ref_t_span_pair_labels
+
                 getattr(self, '{}_sp_prf'.format(task_name))(
                     t_span_pair_pred, t_span_pair_labels, t_span_pair_mask.long(),
                     recall=recall, bucket_value=t_span_pair_len, sig_test=False)
@@ -920,6 +925,15 @@ class BratMultitask(Model):
                 span_pair_labels = task_output['span_pair_labels'].cpu().numpy()
                 bs, nsp = span_pair_mask.shape
 
+                if 'ref_span_pairs' in task_output:
+                    # SHAPE: (batch_size, num_span_pairs, 2)
+                    ref_span_pairs = task_output['ref_span_pairs'].cpu().numpy()
+                    # SHAPE: (batch_size, num_spans)
+                    ref_span_pair_mask = task_output['ref_span_pair_mask'].cpu().numpy()
+                    # SHAPE: (batch_size, num_spans)
+                    ref_span_pair_labels = task_output['ref_span_pair_labels'].cpu().numpy()
+                    _, ref_nsp = ref_span_pair_mask.shape
+
                 neg_sp_label_ind = getattr(self, '{}_span_pair_neg_label'.format(task_name))
                 sp_namespace = '{}_span_pair_labels'.format(task_name)
                 sp_ind2label = lambda ind: self.vocab.get_token_from_index(ind, sp_namespace)
@@ -927,9 +941,11 @@ class BratMultitask(Model):
                 for b in range(bs):
                     spl: List[Tuple[Tuple, Tuple, str, str]] = []
                     output_dict['span_pair_with_label'].append(spl)
+                    added: Set[Tuple[int, int]] = set()
                     for s in range(nsp):
                         if span_pair_mask[b, s] == 0:
                             continue
+                        added.add((span_pairs[b, s, 0], span_pairs[b, s, 1]))
                         s1b: Tuple[int, int] = tuple(spans[b, span_pairs[b, s, 0]])
                         s2b: Tuple[int, int] = tuple(spans[b, span_pairs[b, s, 1]])
                         p_label: int = span_pair_preds[b, s]
@@ -939,6 +955,20 @@ class BratMultitask(Model):
                         p_label: str = sp_ind2label(p_label)
                         g_label: str = sp_ind2label(g_label)
                         spl.append((s1b, s2b, p_label, g_label))
+
+                    if 'ref_span_pairs' in task_output:
+                        for s in range(ref_nsp):
+                            if ref_span_pair_mask[b, s] == 0 or (ref_span_pairs[b, s, 0], ref_span_pairs[b, s, 1]) in added:
+                                continue
+                            s1b: Tuple[int, int] = tuple(spans[b, ref_span_pairs[b, s, 0]])
+                            s2b: Tuple[int, int] = tuple(spans[b, ref_span_pairs[b, s, 1]])
+                            p_label: int = neg_sp_label_ind
+                            g_label: int = ref_span_pair_labels[b, s]
+                            if p_label == neg_sp_label_ind and g_label == neg_sp_label_ind:
+                                continue
+                            p_label: str = sp_ind2label(p_label)
+                            g_label: str = sp_ind2label(g_label)
+                            spl.append((s1b, s2b, p_label, g_label))
 
         return output_dict
 
