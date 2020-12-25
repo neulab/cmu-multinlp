@@ -41,12 +41,17 @@ class PrecisionRecallF1(Metric):
                  recall: torch.LongTensor = None,  # SHAPE: (batch_size, seq_len)
                  duplicate_check: bool = True,
                  bucket_value: torch.LongTensor = None,  # SHPAE: (batch_size, seq_len)
+                 sig_test: bool = False,
+                 mask_oos: torch.LongTensor = None,  # SHAPE: (batch_size, seq_len)
                  ):  # SHAPE: (batch_size)
         if len(predictions.size()) != 2:
             raise Exception('inputs should have two dimensions')
         self._used = True
         predicted = (predictions.ne(self._neg_label).long() * mask).float()
-        whole_subset = (labels.ne(self._neg_label).long() * mask).float()
+        if mask_oos is None:
+            whole_subset = (labels.ne(self._neg_label).long() * mask).float()
+        else:
+            whole_subset = (labels.ne(self._neg_label).long() * (mask + mask_oos).ne(0).long()).float()
         self._recall_local += whole_subset.sum().item()
         if recall is not None:
             whole = recall.float()
@@ -65,6 +70,11 @@ class PrecisionRecallF1(Metric):
             self._precision += predicted.sum().item()
             self._recall += whole.sum().item()
             self._num_sample += predictions.size(0)
+            if sig_test:
+                for i in range(predictions.size(0)):
+                    print('ST\t{}\t{}\t{}'.format(int(matched[i].sum().item()),
+                                                  int(predicted[i].sum().item()),
+                                                  int(whole[i].sum().item())))
             if bucket_value is not None:
                 bucket_value = (bucket_value * mask).cpu().numpy().reshape(-1)
                 matched = matched.cpu().numpy().reshape(-1)

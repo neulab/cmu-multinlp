@@ -17,11 +17,13 @@ from nltk.tree import Tree
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.dataset_readers.dataset_utils import enumerate_spans
-from allennlp.data.fields import Field, TextField, SpanField, ListField, SequenceLabelField, \
+from allennlp.data.fields import Field, TextField, ListField, SequenceLabelField, \
     ArrayField, LabelField, MetadataField
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
+from .span_field import SpanField
+
 
 logger = logging.getLogger(__name__)
 
@@ -145,9 +147,9 @@ class BratDoc:
         self.spans = dict((k, v) for k, v in self.spans.items() if k in sp_set)
 
 
-    def filter(self, max_span_width: int = None):
+    def filter(self, max_span_width: int = None, test: bool=False):
         ''' remove spans longer than max_span_width '''
-        if max_span_width is None:
+        if max_span_width is None or test:
             return
         new_spans = {}
         for sid, (slabel, sind, eind) in self.spans.items():
@@ -161,11 +163,13 @@ class BratDoc:
         self.span_pairs = new_span_pairs
 
 
-    def truncate(self, max_doc_len):
+    def truncate(self, max_doc_len, test: bool=False):
         ''' truncate the document '''
         # if doc is list of tokens, max_doc_len is the number of tokens to keep
         # if doc is str, max_doc_len is the number of characters to keep
         self.doc = self.doc[:max_doc_len]
+        if test:
+            return
         new_spans = {}
         for sid, (slabel, sind, eind) in self.spans.items():
             if sind >= max_doc_len or eind > max_doc_len:
@@ -663,9 +667,9 @@ class BratReader(DatasetReader):
             raw_tokens = [t for t in brat_doc.doc]
             raw_brat_doc = deepcopy(brat_doc)
 
-            brat_doc.filter(max_span_width)
+            brat_doc.filter(max_span_width, test=True)
             if self._max_sent_len[task] is not None:
-                brat_doc.truncate(self._max_sent_len[task])
+                brat_doc.truncate(self._max_sent_len[task], test=True)
             if not is_training and self._eval_span_pair_skip and self._eval_span_pair_skip[task]:
                 # skip some labels during evaluation
                 brat_doc.skip_span_pairs(self._eval_span_pair_skip[task])
@@ -777,7 +781,7 @@ class BratReader(DatasetReader):
         spans_ind = sorted(range(len(spans)), key=lambda i: (spans[i][1][1], spans[i][1][0]))
         spans = [spans[i] for i in spans_ind]
         sid2ind = dict((s[0], i) for i, s in enumerate(spans))
-        span_field = ListField([SpanField(sind, eind - 1, text_field) for sid, (sind, eind) in spans])
+        span_field = ListField([SpanField(sind, eind - 1, text_field, check_sentence=False) for sid, (sind, eind) in spans])
         task = self._default_task if task is None else task
         task_field = LabelField(task, label_namespace='task_labels')
         if len(span_pairs) > 0:
@@ -826,7 +830,7 @@ class BratReader(DatasetReader):
                     [self.PADDING_LABEL], span_pair_field, label_namespace='{}_span_pair_labels'.format(task))
         # add meta filed
         # e2e is used in forward to decide whether to use end2end training/testing
-        metadata_dict: Dict[str, Any] = {'task': task, 'e2e': e2e}
+        metadata_dict: Dict[str, Any] = {'task': task, 'e2e': e2e, 'max_span_width': self._max_span_width[task]}
         if 'brat_doc' in kwargs:
             metadata_dict['clusters'] = kwargs['brat_doc'].build_cluster(inclusive=True)
         metadata_dict.update(kwargs)

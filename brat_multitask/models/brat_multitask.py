@@ -328,6 +328,7 @@ class BratMultitask(Model):
 
         task2e2e = dict([(m['task'], m['e2e']) for m in metadata])
         this_batch_task = metadata[0]['task']  # TODO: only allow one task per batch
+        max_span_width = metadata[0]['max_span_width']
 
         # ------ shared layers ------
         # SHAPE: (batch_size, seq_len, emb_dim)
@@ -349,7 +350,11 @@ class BratMultitask(Model):
 
         # -1 is used for padding and some spans might be out of bounds, e.g., due to wordpiece tokenization
         # SHAPE: (batch_size, num_spans)
-        span_mask = ((spans[:, :, 0] >= 0) & (spans[:, :, 1] < text_mask.sum(-1, keepdim=True).long())).float()
+        span_mask = (spans[:, :, 0] >= 0).float()  # sanity check
+        sent_len = text_mask.sum(-1, keepdim=True).long()
+        span_mask_oos = ((spans[:, :, 0] >= sent_len) | (spans[:, :, 1] >= sent_len) | (spans[:, :, 1] - spans[:, :, 0] >= max_span_width)).float()  # spans not considered by the model
+        span_mask = span_mask * (1 - span_mask_oos)
+
         spans = (spans.float() * span_mask.unsqueeze(-1)).long()
 
         if self._span_label_emb is not None:
@@ -442,6 +447,7 @@ class BratMultitask(Model):
                 t_span_emb = torch.cat([t_span_emb, task_emb.expand(t_span_emb.size(0), t_span_emb.size(1), -1)], -1)
             # SHAPE: (task_batch_size, num_spans)
             t_span_mask = span_mask.masked_select(task_mask.view(-1, 1)).view(-1, num_spans)
+            t_span_mask_oos = span_mask_oos.masked_select(task_mask.view(-1, 1)).view(-1, num_spans)
             # SHAPE: (task_batch_size, num_spans)
             t_span_weights = span_weights.masked_select(task_mask.view(-1, 1)).view(-1, num_spans)
 
@@ -473,6 +479,7 @@ class BratMultitask(Model):
             output_dict['task'][task_name]['spans'] = t_spans
             output_dict['task'][task_name]['span_logits'] = t_span_logits
             output_dict['task'][task_name]['span_mask'] = t_span_mask
+            output_dict['task'][task_name]['span_mask_oos'] = t_span_mask_oos
             output_dict['task'][task_name]['text_mask'] = t_text_mask
             if span_labels is not None:
                 # SHAPE: (task_batch_size, num_spans)
@@ -588,7 +595,7 @@ class BratMultitask(Model):
                 getattr(self, '{}_s_acc'.format(task_name))(t_span_logits, t_span_labels, t_span_mask_subset)
                 getattr(self, '{}_s_prf'.format(task_name))(
                     t_span_logits.max(-1)[1], t_span_labels, t_span_mask_subset.long(),
-                    bucket_value=t_span_len, sig_test=False)
+                    bucket_value=t_span_len, sig_test=False, mask_oos=t_span_mask_oos.long())
                 getattr(self, '{}_s_prf_b'.format(task_name))(
                     t_span_logits.max(-1)[1], t_span_labels, t_span_mask_subset.long())
                 for special_metric in self._special_metric[task_name]:
@@ -888,6 +895,7 @@ class BratMultitask(Model):
                 preds = logits.max(-1)[1].cpu().numpy()
                 # SHAPE: (batch_size, num_spans)
                 mask = task_output['span_mask'].cpu().numpy()
+                mask_oos = task_output['span_mask_oos'].cpu().numpy()
                 # SHAPE: (batch_size, num_spans)
                 labels = task_output['span_labels'].cpu().numpy()
                 # SHAPE: (batch_size, seq_len)
@@ -902,10 +910,10 @@ class BratMultitask(Model):
                     sl: List[Tuple[Tuple, str, str]] = []
                     output_dict['span_with_label'].append(sl)
                     for s in range(ns):
-                        if mask[b, s] == 0:
+                        if mask[b, s] == 0 and mask_oos[b, s] == 0:
                             continue
                         span_boundary: Tuple[int, int] = tuple(spans[b, s])
-                        p_label: int = preds[b, s]
+                        p_label: int = neg_label_ind if mask_oos[b, s] else preds[b, s]
                         g_label: int = labels[b, s]
                         if p_label == neg_label_ind and g_label == neg_label_ind:
                             continue
