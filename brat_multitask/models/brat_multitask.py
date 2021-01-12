@@ -355,6 +355,7 @@ class BratMultitask(Model):
         span_mask_oos = ((spans[:, :, 0] >= sent_len) | (spans[:, :, 1] >= sent_len) | (spans[:, :, 1] - spans[:, :, 0] >= max_span_width)).float()  # spans not considered by the model
         span_mask = span_mask * (1 - span_mask_oos)
 
+        _spans = spans
         spans = (spans.float() * span_mask.unsqueeze(-1)).long()
 
         if self._span_label_emb is not None:
@@ -437,6 +438,7 @@ class BratMultitask(Model):
             # ----- span -----
             # SHAPE: (task_batch_size, num_spans, 2)
             t_spans = spans.masked_select(task_mask.view(-1, 1, 1)).view(-1, num_spans, 2)
+            _t_spans = _spans.masked_select(task_mask.view(-1, 1, 1)).view(-1, num_spans, 2)
             # SHAPE: (task_batch_size, num_spans)
             t_span_len = t_spans[:, :, 1] - t_spans[:, :, 0] + 1
             # SHAPE: (task_batch_size, num_spans, span_emb_dim)
@@ -476,7 +478,7 @@ class BratMultitask(Model):
                 t_span_neg_logit = t_span_logits[:, :, neg_label_ind]
 
             # save to output
-            output_dict['task'][task_name]['spans'] = t_spans
+            output_dict['task'][task_name]['spans'] = _t_spans
             output_dict['task'][task_name]['span_logits'] = t_span_logits
             output_dict['task'][task_name]['span_mask'] = t_span_mask
             output_dict['task'][task_name]['span_mask_oos'] = t_span_mask_oos

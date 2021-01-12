@@ -138,7 +138,7 @@
       }
     },
     "span_width_embedding_dim": 64,
-    "max_span_width": 30,
+    "max_span_width": std.extVar("max_span_width"),
     "bucket_widths": std.extVar("bucket_widths"),
     "lexical_dropout": 0.5,
     "regularizer": [
